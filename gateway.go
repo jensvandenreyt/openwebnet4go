@@ -1,8 +1,10 @@
 package openwebnet
 
 import (
+	"context"
+
 	"github.com/jensvandenreyt/openwebnet4go/communication"
-	message2 "github.com/jensvandenreyt/openwebnet4go/message"
+	"github.com/jensvandenreyt/openwebnet4go/message"
 )
 
 // GatewayListener defines callbacks for gateway events.
@@ -18,9 +20,9 @@ type GatewayListener interface {
 	// OnReconnected is called after the connection has been re-connected.
 	OnReconnected()
 	// OnEventMessage is called when a new OpenWebNet message is received on the MON session.
-	OnEventMessage(msg message2.OpenMessage)
+	OnEventMessage(msg message.OpenMessage)
 	// OnNewDevice is called when a new device is discovered.
-	OnNewDevice(where message2.Where, deviceType message2.OpenDeviceType, msg *message2.BaseOpenMessage)
+	OnNewDevice(where message.Where, deviceType message.OpenDeviceType, msg *message.BaseOpenMessage)
 	// OnDiscoveryCompleted is called when device discovery has been completed.
 	OnDiscoveryCompleted()
 }
@@ -28,9 +30,9 @@ type GatewayListener interface {
 // Gateway is the interface for OpenWebNet gateways.
 type Gateway interface {
 	// Connect connects to the gateway.
-	Connect() error
+	Connect(ctx context.Context) error
 	// Send sends a command message and returns the response.
-	Send(msg message2.OpenMessage) (*communication.Response, error)
+	Send(msg message.OpenMessage) (*communication.Response, error)
 	// Subscribe adds a listener for gateway events.
 	Subscribe(listener GatewayListener)
 	// Unsubscribe removes a listener.

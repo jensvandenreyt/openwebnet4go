@@ -1,13 +1,14 @@
 package openwebnet
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
-	communication2 "github.com/jensvandenreyt/openwebnet4go/communication"
-	message2 "github.com/jensvandenreyt/openwebnet4go/message"
+	"github.com/jensvandenreyt/openwebnet4go/communication"
+	"github.com/jensvandenreyt/openwebnet4go/message"
 	"github.com/rs/zerolog/log"
 )
 
@@ -25,7 +26,7 @@ type BUSGateway struct {
 	port int
 	pwd  string
 
-	connector       *communication2.BUSConnector
+	connector       *communication.BUSConnector
 	isConnected     bool
 	isDiscovering   bool
 	closedRequested bool
@@ -60,13 +61,16 @@ func (gw *BUSGateway) GetPassword() string { return gw.pwd }
 func (gw *BUSGateway) IsConnected() bool { return gw.isConnected }
 
 // Connect connects to the OpenWebNet gateway.
-func (gw *BUSGateway) Connect() error {
+func (gw *BUSGateway) Connect(ctx context.Context) error {
 	if gw.isConnected {
 		log.Trace().Msg("##BUS## OpenGateway is already connected")
 		return nil
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	gw.closedRequested = false
-	gw.connector = communication2.NewBUSConnector(gw.host, gw.port, gw.pwd)
+	gw.connector = communication.NewBUSConnector(gw.host, gw.port, gw.pwd)
 	gw.connector.SetListener(gw)
 
 	if err := gw.connector.OpenMonConn(); err != nil {
@@ -90,11 +94,18 @@ func (gw *BUSGateway) Connect() error {
 	}
 
 	// Request MAC address and firmware version
-	gw.handleManagementDimensions(gw.sendInternal(message2.GatewayMgmtRequestMACAddress()))
-	gw.handleManagementDimensions(gw.sendInternal(message2.GatewayMgmtRequestFirmwareVersion()))
+	gw.handleManagementDimensions(gw.sendInternal(message.GatewayMgmtRequestMACAddress()))
+	gw.handleManagementDimensions(gw.sendInternal(message.GatewayMgmtRequestFirmwareVersion()))
 
 	log.Trace().Msg("##GW## ============ OpenGateway CONNECTED! ============")
 	gw.isConnected = true
+
+	// Tie the connection lifecycle to the provided context.
+	go func() {
+		<-ctx.Done()
+		gw.CloseConnection()
+	}()
+
 	gw.notifyListeners(func(l GatewayListener) { l.OnConnected() })
 	return nil
 }
@@ -109,12 +120,12 @@ func (gw *BUSGateway) Reconnect() error {
 			break
 		}
 
-		gw.connector = communication2.NewBUSConnector(gw.host, gw.port, gw.pwd)
+		gw.connector = communication.NewBUSConnector(gw.host, gw.port, gw.pwd)
 		gw.connector.SetListener(gw)
 
 		err := gw.connector.OpenMonConn()
 		if err != nil {
-			if _, ok := err.(*communication2.OWNAuthError); ok {
+			if _, ok := err.(*communication.OWNAuthError); ok {
 				return err
 			}
 			retry = retry * time.Duration(reconnectMultiplier)
@@ -131,7 +142,7 @@ func (gw *BUSGateway) Reconnect() error {
 
 		err = gw.connector.OpenCmdConn()
 		if err != nil {
-			if _, ok := err.(*communication2.OWNAuthError); ok {
+			if _, ok := err.(*communication.OWNAuthError); ok {
 				return err
 			}
 			retry = retry * time.Duration(reconnectMultiplier)
@@ -143,8 +154,8 @@ func (gw *BUSGateway) Reconnect() error {
 		}
 
 		if gw.connector.IsCmdConnected() {
-			gw.handleManagementDimensions(gw.sendInternal(message2.GatewayMgmtRequestMACAddress()))
-			gw.handleManagementDimensions(gw.sendInternal(message2.GatewayMgmtRequestFirmwareVersion()))
+			gw.handleManagementDimensions(gw.sendInternal(message.GatewayMgmtRequestMACAddress()))
+			gw.handleManagementDimensions(gw.sendInternal(message.GatewayMgmtRequestFirmwareVersion()))
 			gw.isConnected = true
 			gw.notifyListeners(func(l GatewayListener) { l.OnReconnected() })
 		}
@@ -153,14 +164,14 @@ func (gw *BUSGateway) Reconnect() error {
 }
 
 // Send sends a command message and returns the response messages.
-func (gw *BUSGateway) Send(msg message2.OpenMessage) (*communication2.Response, error) {
+func (gw *BUSGateway) Send(msg message.OpenMessage) (*communication.Response, error) {
 	if !gw.isConnected {
-		return nil, communication2.NewOWNError("Error while sending message: the gateway is not connected")
+		return nil, communication.NewOWNError("Error while sending message: the gateway is not connected")
 	}
 	return gw.sendInternal(msg)
 }
 
-func (gw *BUSGateway) sendInternal(msg message2.OpenMessage) (*communication2.Response, error) {
+func (gw *BUSGateway) sendInternal(msg message.OpenMessage) (*communication.Response, error) {
 	return gw.connector.SendCommandSynch(msg.GetFrameValue())
 }
 
@@ -201,13 +212,13 @@ func (gw *BUSGateway) notifyListeners(method func(GatewayListener)) {
 	}()
 }
 
-func (gw *BUSGateway) handleManagementDimensions(res *communication2.Response, err error) {
+func (gw *BUSGateway) handleManagementDimensions(res *communication.Response, err error) {
 	if err != nil || res == nil {
 		return
 	}
 	for _, msg := range res.GetResponseMessages() {
-		bom, ok := msg.(*message2.BaseOpenMessage)
-		if !ok || !message2.IsGatewayMgmtMessage(bom) {
+		bom, ok := msg.(*message.BaseOpenMessage)
+		if !ok || !message.IsGatewayMgmtMessage(bom) {
 			continue
 		}
 		dim := bom.GetDim()
@@ -215,14 +226,14 @@ func (gw *BUSGateway) handleManagementDimensions(res *communication2.Response, e
 			continue
 		}
 		switch dim.Value() {
-		case message2.DimGatewayMgmtMACAddress.Value():
-			mac, err := message2.GatewayMgmtParseMACAddress(bom)
+		case message.DimGatewayMgmtMACAddress.Value():
+			mac, err := message.GatewayMgmtParseMACAddress(bom)
 			if err == nil {
 				gw.macAddr = mac
 				log.Trace().Msgf("##GW## MAC ADDRESS: %s", gw.GetMACAddr())
 			}
-		case message2.DimGatewayMgmtFirmwareVersion.Value():
-			fw, err := message2.GatewayMgmtParseFirmwareVersion(bom)
+		case message.DimGatewayMgmtFirmwareVersion.Value():
+			fw, err := message.GatewayMgmtParseFirmwareVersion(bom)
 			if err == nil {
 				gw.firmwareVersion = fw
 				log.Trace().Msgf("##GW## FIRMWARE: %s", gw.GetFirmwareVersion())
@@ -238,7 +249,7 @@ func (gw *BUSGateway) GetFirmwareVersion() string {
 
 // GetMACAddr returns the MAC address as human-readable string.
 func (gw *BUSGateway) GetMACAddr() string {
-	return message2.GatewayMgmtFormatMACAddress(gw.macAddr)
+	return message.GatewayMgmtFormatMACAddress(gw.macAddr)
 }
 
 // CloseConnection closes the connection to the gateway.
@@ -281,10 +292,10 @@ func (gw *BUSGateway) discoverDevicesInternal() error {
 
 	// DISCOVER LIGHTS
 	log.Trace().Msg("##BUS## ----- LIGHTS discovery -----")
-	res, err := gw.sendInternal(message2.LightingRequestStatus(message2.WhereLightAutomGeneral.Value()))
+	res, err := gw.sendInternal(message.LightingRequestStatus(message.WhereLightAutomGeneral.Value()))
 	if err == nil && res != nil {
 		for _, msg := range res.GetResponseMessages() {
-			if bom, ok := msg.(*message2.BaseOpenMessage); ok && bom.WhoField == message2.WhoLighting {
+			if bom, ok := msg.(*message.BaseOpenMessage); ok && bom.WhoField == message.WhoLighting {
 				if bom.DetectDeviceTyp != nil {
 					devType, _ := bom.DetectDeviceTyp(bom)
 					if devType != 0 {
@@ -298,10 +309,10 @@ func (gw *BUSGateway) discoverDevicesInternal() error {
 
 	// DISCOVER AUTOMATION
 	log.Trace().Msg("##BUS## ----- AUTOMATION discovery -----")
-	res, err = gw.sendInternal(message2.AutomationRequestStatus(message2.WhereLightAutomGeneral.Value()))
+	res, err = gw.sendInternal(message.AutomationRequestStatus(message.WhereLightAutomGeneral.Value()))
 	if err == nil && res != nil {
 		for _, msg := range res.GetResponseMessages() {
-			if bom, ok := msg.(*message2.BaseOpenMessage); ok && bom.WhoField == message2.WhoAutomation {
+			if bom, ok := msg.(*message.BaseOpenMessage); ok && bom.WhoField == message.WhoAutomation {
 				if bom.DetectDeviceTyp != nil {
 					devType, _ := bom.DetectDeviceTyp(bom)
 					if devType != 0 {
@@ -315,10 +326,10 @@ func (gw *BUSGateway) discoverDevicesInternal() error {
 
 	// DISCOVER ENERGY MANAGEMENT
 	log.Trace().Msg("##BUS## ----- ENERGY MANAGEMENT discovery -----")
-	res, err = gw.sendInternal(message2.EnergyMgmtDiagnosticRequestDiagnostic(message2.WhereEnergyManagementGeneral.Value()))
+	res, err = gw.sendInternal(message.EnergyMgmtDiagnosticRequestDiagnostic(message.WhereEnergyManagementGeneral.Value()))
 	if err == nil && res != nil {
 		for _, msg := range res.GetResponseMessages() {
-			if bom, ok := msg.(*message2.BaseOpenMessage); ok && bom.WhoField == message2.WhoEnergyManagementDiagnostic {
+			if bom, ok := msg.(*message.BaseOpenMessage); ok && bom.WhoField == message.WhoEnergyManagementDiagnostic {
 				if bom.DetectDeviceTyp != nil {
 					devType, _ := bom.DetectDeviceTyp(bom)
 					if devType != 0 {
@@ -332,10 +343,10 @@ func (gw *BUSGateway) discoverDevicesInternal() error {
 
 	// DISCOVER THERMOREGULATION
 	log.Trace().Msg("##BUS## ----- THERMOREGULATION discovery -----")
-	res, err = gw.sendInternal(message2.ThermoregulationDiagnosticRequestDiagnostic(message2.WhereThermoAllMasterProbes.Value()))
+	res, err = gw.sendInternal(message.ThermoregulationDiagnosticRequestDiagnostic(message.WhereThermoAllMasterProbes.Value()))
 	if err == nil && res != nil {
 		for _, msg := range res.GetResponseMessages() {
-			if bom, ok := msg.(*message2.BaseOpenMessage); ok && bom.WhoField == message2.WhoThermoregulationDiagnostic {
+			if bom, ok := msg.(*message.BaseOpenMessage); ok && bom.WhoField == message.WhoThermoregulationDiagnostic {
 				if bom.DetectDeviceTyp != nil {
 					devType, _ := bom.DetectDeviceTyp(bom)
 					if devType != 0 {
@@ -349,10 +360,10 @@ func (gw *BUSGateway) discoverDevicesInternal() error {
 
 	// DISCOVER DRY CONTACT / IR SENSOR
 	log.Trace().Msg("##BUS## ----- DRY CONTACT / IR sensor discovery -----")
-	res, err = gw.sendInternal(message2.CENPlusRequestStatus("30"))
+	res, err = gw.sendInternal(message.CENPlusRequestStatus("30"))
 	if err == nil && res != nil {
 		for _, msg := range res.GetResponseMessages() {
-			if bom, ok := msg.(*message2.BaseOpenMessage); ok && bom.WhoField == message2.WhoCENPlusScenarioScheduler {
+			if bom, ok := msg.(*message.BaseOpenMessage); ok && bom.WhoField == message.WhoCENPlusScenarioScheduler {
 				if bom.DetectDeviceTyp != nil {
 					devType, _ := bom.DetectDeviceTyp(bom)
 					if devType != 0 {
@@ -370,7 +381,7 @@ func (gw *BUSGateway) discoverDevicesInternal() error {
 }
 
 // OnMessage implements ConnectorListener - called when a message is received on MON.
-func (gw *BUSGateway) OnMessage(msg message2.OpenMessage) {
+func (gw *BUSGateway) OnMessage(msg message.OpenMessage) {
 	gw.notifyListeners(func(l GatewayListener) { l.OnEventMessage(msg) })
 }
 
