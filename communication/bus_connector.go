@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/jensvandenreyt/openwebnet4go/pkg/message"
+	message2 "github.com/jensvandenreyt/openwebnet4go/message"
 )
 
 // BUS connection constants.
@@ -30,7 +30,7 @@ const (
 
 // ConnectorListener defines methods to receive MONITOR messages.
 type ConnectorListener interface {
-	OnMessage(msg message.OpenMessage)
+	OnMessage(msg message2.OpenMessage)
 	OnMonDisconnected(err error)
 }
 
@@ -170,7 +170,7 @@ func (bc *BUSConnector) doHandshake(ch *FrameChannel, connType string) error {
 	if err != nil {
 		return NewOWNAuthErrorWithCause("Handshake STEP-1 read error", err)
 	}
-	if fr != message.FrameACK {
+	if fr != message2.FrameACK {
 		return NewOWNAuthError(fmt.Sprintf("Could not open BUS-%s: no ACK at STEP-1, received: %s", connType, fr))
 	}
 
@@ -188,7 +188,7 @@ func (bc *BUSConnector) doHandshake(ch *FrameChannel, connType string) error {
 		return NewOWNAuthErrorWithCause("Handshake STEP-2 read error", err)
 	}
 
-	if fr == message.FrameNACK && connType == CmdType {
+	if fr == message2.FrameNACK && connType == CmdType {
 		// Try alt CMD session
 		if err := ch.SendFrame(CmdSessionAlt); err != nil {
 			return NewOWNAuthErrorWithCause("Handshake STEP-2 alt send error", err)
@@ -199,7 +199,7 @@ func (bc *BUSConnector) doHandshake(ch *FrameChannel, connType string) error {
 		}
 	}
 
-	if fr == message.FrameACK {
+	if fr == message2.FrameACK {
 		// NO_AUTH: no password required
 		ch.HandshakeCompleted = true
 		log.Println("(HS) NO_AUTH: GW has no pwd ==HANDSHAKE COMPLETED==")
@@ -238,7 +238,7 @@ func (bc *BUSConnector) doOPENHandshake(nonceFrame string, ch *FrameChannel) err
 		return NewOWNAuthError("Invalid gateway password. Password must contain only digits (OPEN_AUTH)")
 	}
 
-	pwdMessage := message.FrameStartDim + pwdEncoded + message.FrameEnd
+	pwdMessage := message2.FrameStartDim + pwdEncoded + message2.FrameEnd
 	if err := ch.SendFrame(pwdMessage); err != nil {
 		return NewOWNAuthErrorWithCause("OPEN_AUTH send error", err)
 	}
@@ -247,7 +247,7 @@ func (bc *BUSConnector) doOPENHandshake(nonceFrame string, ch *FrameChannel) err
 	if err != nil {
 		return NewOWNAuthErrorWithCause("OPEN_AUTH read error", err)
 	}
-	if fr == message.FrameACK {
+	if fr == message2.FrameACK {
 		log.Println("(HS) OPEN_AUTH: pwd accepted ==HANDSHAKE COMPLETED==")
 		return nil
 	}
@@ -256,7 +256,7 @@ func (bc *BUSConnector) doOPENHandshake(nonceFrame string, ch *FrameChannel) err
 
 func (bc *BUSConnector) doHMACHandshake(hmacType string, ch *FrameChannel) error {
 	// STEP-3: send ACK, wait for Ra
-	if err := ch.SendFrame(message.FrameACK); err != nil {
+	if err := ch.SendFrame(message2.FrameACK); err != nil {
 		return NewOWNAuthErrorWithCause("HMAC STEP-3 send error", err)
 	}
 
@@ -280,7 +280,7 @@ func (bc *BUSConnector) doHMACHandshake(hmacType string, ch *FrameChannel) error
 	hmacRaRbABKab := CalcSHA256(ra + rb + a + b + kab)
 
 	// STEP-4: send Rb + HMAC
-	hmacMessage := message.FrameStartDim + HexToDigit(rb) + "*" + HexToDigit(hmacRaRbABKab) + message.FrameEnd
+	hmacMessage := message2.FrameStartDim + HexToDigit(rb) + "*" + HexToDigit(hmacRaRbABKab) + message2.FrameEnd
 	if err := ch.SendFrame(hmacMessage); err != nil {
 		return NewOWNAuthErrorWithCause("HMAC STEP-4 send error", err)
 	}
@@ -290,7 +290,7 @@ func (bc *BUSConnector) doHMACHandshake(hmacType string, ch *FrameChannel) error
 		return NewOWNAuthErrorWithCause("HMAC STEP-4 read error", err)
 	}
 
-	if fr == message.FrameNACK {
+	if fr == message2.FrameNACK {
 		return NewOWNAuthError("Password not accepted by gateway (HMAC)")
 	}
 
@@ -301,7 +301,7 @@ func (bc *BUSConnector) doHMACHandshake(hmacType string, ch *FrameChannel) error
 
 	hmacRaRbKab := DigitToHex(matches[1])
 	if CalcSHA256(ra+rb+kab) == hmacRaRbKab {
-		if err := ch.SendFrame(message.FrameACK); err != nil {
+		if err := ch.SendFrame(message2.FrameACK); err != nil {
 			return NewOWNAuthErrorWithCause("HMAC final ACK send error", err)
 		}
 		log.Println("(HS) HMAC_AUTH: final ACK sent ==HANDSHAKE COMPLETED==")
@@ -320,7 +320,7 @@ func (bc *BUSConnector) SendCommandSynch(frame string) (*Response, error) {
 }
 
 func (bc *BUSConnector) sendCmdAndReadResp(frame string) (*Response, error) {
-	parsedReq, err := message.Parse(frame)
+	parsedReq, err := message2.Parse(frame)
 	if err != nil {
 		return nil, NewOWNErrorWithCause("Failed to parse request frame", err)
 	}
@@ -357,7 +357,7 @@ func (bc *BUSConnector) sendCmdAndReadResp(frame string) (*Response, error) {
 		if fr == "" {
 			return nil, NewOWNError("Received null frame while reading responses")
 		}
-		parsedResp, err := message.Parse(fr)
+		parsedResp, err := message2.Parse(fr)
 		if err != nil {
 			// Skip unsupported frames
 			continue
@@ -385,7 +385,7 @@ func (bc *BUSConnector) monReceiveLoop() {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 				// Timeout - check if gateway is still reachable
 				if bc.isCmdConnected {
-					modelReq := message.GatewayMgmtRequestModel()
+					modelReq := message2.GatewayMgmtRequestModel()
 					_, cmdErr := bc.sendCmdAndReadResp(modelReq.GetFrameValue())
 					if cmdErr != nil {
 						bc.handleMonDisconnect(NewOWNErrorWithCause("Gateway not reachable", cmdErr))
@@ -410,7 +410,7 @@ func (bc *BUSConnector) monReceiveLoop() {
 			return
 		}
 
-		parsedMsg, err := message.Parse(fr)
+		parsedMsg, err := message2.Parse(fr)
 		if err != nil {
 			log.Printf("##BUS-conn## Skipping frame: %s (%v)", fr, err)
 			continue
@@ -432,7 +432,7 @@ func (bc *BUSConnector) startMonKeepalive() {
 				return
 			case <-ticker.C:
 				if bc.monChannel != nil {
-					if err := bc.monChannel.SendFrame(message.FrameACK); err != nil {
+					if err := bc.monChannel.SendFrame(message2.FrameACK); err != nil {
 						log.Printf("##BUS-conn## Could not send MON keepalive: %v", err)
 					}
 				}

@@ -7,7 +7,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/jensvandenreyt/openwebnet4go/pkg/message"
+	"github.com/jensvandenreyt/openwebnet4go/message"
 )
 
 // FrameChannel wraps input/output streams to send and receive frames from an OpenWebNet gateway.

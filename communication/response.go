@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/jensvandenreyt/openwebnet4go/pkg/message"
+	"github.com/jensvandenreyt/openwebnet4go/message"
 )
 
 // Response represents a response to an OpenWebNet request sent to the gateway.
