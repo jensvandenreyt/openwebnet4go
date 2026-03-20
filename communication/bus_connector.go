@@ -2,12 +2,13 @@ package communication
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"regexp"
 	"time"
 
-	message2 "github.com/jensvandenreyt/openwebnet4go/message"
+	"github.com/rs/zerolog/log"
+
+	"github.com/jensvandenreyt/openwebnet4go/message"
 )
 
 // BUS connection constants.
@@ -30,7 +31,7 @@ const (
 
 // ConnectorListener defines methods to receive MONITOR messages.
 type ConnectorListener interface {
-	OnMessage(msg message2.OpenMessage)
+	OnMessage(msg message.OpenMessage)
 	OnMonDisconnected(err error)
 }
 
@@ -92,7 +93,7 @@ func (bc *BUSConnector) OpenCmdConn() error {
 		return err
 	}
 	bc.isCmdConnected = true
-	log.Println("##BUS-conn## ============ CMD CONNECTED ============")
+	log.Trace().Msg("##BUS-conn## ============ CMD CONNECTED ============")
 	return nil
 }
 
@@ -105,7 +106,7 @@ func (bc *BUSConnector) OpenMonConn() error {
 		return err
 	}
 	bc.isMonConnected = true
-	log.Println("##BUS-conn## ============ MON CONNECTED ============")
+	log.Trace().Msg("##BUS-conn## ============ MON CONNECTED ============")
 
 	bc.monStopChan = make(chan struct{})
 	go bc.monReceiveLoop()
@@ -115,7 +116,7 @@ func (bc *BUSConnector) OpenMonConn() error {
 }
 
 func (bc *BUSConnector) openConnection(connType string) error {
-	log.Printf("##BUS-conn## Establishing %s connection to BUS Gateway on %s:%d...", connType, bc.host, bc.port)
+	log.Trace().Msgf("##BUS-conn## Establishing %s connection to BUS Gateway on %s:%d...", connType, bc.host, bc.port)
 	ch, err := bc.connectSocket(connType)
 	if err != nil {
 		return NewOWNErrorWithCause(
@@ -156,7 +157,7 @@ func (bc *BUSConnector) connectSocket(connType string) (*FrameChannel, error) {
 }
 
 func (bc *BUSConnector) doHandshake(ch *FrameChannel, connType string) error {
-	log.Printf("(HS) starting HANDSHAKE on channel %s...", ch.GetName())
+	log.Trace().Msgf("(HS) starting HANDSHAKE on channel %s...", ch.GetName())
 
 	// Set handshake timeout
 	if connType == MonType && bc.monConn != nil {
@@ -170,7 +171,7 @@ func (bc *BUSConnector) doHandshake(ch *FrameChannel, connType string) error {
 	if err != nil {
 		return NewOWNAuthErrorWithCause("Handshake STEP-1 read error", err)
 	}
-	if fr != message2.FrameACK {
+	if fr != message.FrameACK {
 		return NewOWNAuthError(fmt.Sprintf("Could not open BUS-%s: no ACK at STEP-1, received: %s", connType, fr))
 	}
 
@@ -188,7 +189,7 @@ func (bc *BUSConnector) doHandshake(ch *FrameChannel, connType string) error {
 		return NewOWNAuthErrorWithCause("Handshake STEP-2 read error", err)
 	}
 
-	if fr == message2.FrameNACK && connType == CmdType {
+	if fr == message.FrameNACK && connType == CmdType {
 		// Try alt CMD session
 		if err := ch.SendFrame(CmdSessionAlt); err != nil {
 			return NewOWNAuthErrorWithCause("Handshake STEP-2 alt send error", err)
@@ -199,10 +200,10 @@ func (bc *BUSConnector) doHandshake(ch *FrameChannel, connType string) error {
 		}
 	}
 
-	if fr == message2.FrameACK {
+	if fr == message.FrameACK {
 		// NO_AUTH: no password required
 		ch.HandshakeCompleted = true
-		log.Println("(HS) NO_AUTH: GW has no pwd ==HANDSHAKE COMPLETED==")
+		log.Trace().Msg("(HS) NO_AUTH: GW has no pwd ==HANDSHAKE COMPLETED==")
 	} else if matched, _ := regexp.MatchString(`^\*#\d+##$`, fr); matched {
 		// OPEN_AUTH: nonce received
 		if err := bc.doOPENHandshake(fr, ch); err != nil {
@@ -231,14 +232,14 @@ func (bc *BUSConnector) doHandshake(ch *FrameChannel, connType string) error {
 
 func (bc *BUSConnector) doOPENHandshake(nonceFrame string, ch *FrameChannel) error {
 	nonce := nonceFrame[2 : len(nonceFrame)-2]
-	log.Printf("(HS) OPEN_AUTH: received nonce=%s", nonce)
+	log.Trace().Msgf("(HS) OPEN_AUTH: received nonce=%s", nonce)
 
 	pwdEncoded, err := CalcOpenPass(bc.pwd, nonce)
 	if err != nil {
 		return NewOWNAuthError("Invalid gateway password. Password must contain only digits (OPEN_AUTH)")
 	}
 
-	pwdMessage := message2.FrameStartDim + pwdEncoded + message2.FrameEnd
+	pwdMessage := message.FrameStartDim + pwdEncoded + message.FrameEnd
 	if err := ch.SendFrame(pwdMessage); err != nil {
 		return NewOWNAuthErrorWithCause("OPEN_AUTH send error", err)
 	}
@@ -247,8 +248,8 @@ func (bc *BUSConnector) doOPENHandshake(nonceFrame string, ch *FrameChannel) err
 	if err != nil {
 		return NewOWNAuthErrorWithCause("OPEN_AUTH read error", err)
 	}
-	if fr == message2.FrameACK {
-		log.Println("(HS) OPEN_AUTH: pwd accepted ==HANDSHAKE COMPLETED==")
+	if fr == message.FrameACK {
+		log.Trace().Msg("(HS) OPEN_AUTH: pwd accepted ==HANDSHAKE COMPLETED==")
 		return nil
 	}
 	return NewOWNAuthError("Password not accepted by gateway (OPEN_AUTH)")
@@ -256,7 +257,7 @@ func (bc *BUSConnector) doOPENHandshake(nonceFrame string, ch *FrameChannel) err
 
 func (bc *BUSConnector) doHMACHandshake(hmacType string, ch *FrameChannel) error {
 	// STEP-3: send ACK, wait for Ra
-	if err := ch.SendFrame(message2.FrameACK); err != nil {
+	if err := ch.SendFrame(message.FrameACK); err != nil {
 		return NewOWNAuthErrorWithCause("HMAC STEP-3 send error", err)
 	}
 
@@ -280,7 +281,7 @@ func (bc *BUSConnector) doHMACHandshake(hmacType string, ch *FrameChannel) error
 	hmacRaRbABKab := CalcSHA256(ra + rb + a + b + kab)
 
 	// STEP-4: send Rb + HMAC
-	hmacMessage := message2.FrameStartDim + HexToDigit(rb) + "*" + HexToDigit(hmacRaRbABKab) + message2.FrameEnd
+	hmacMessage := message.FrameStartDim + HexToDigit(rb) + "*" + HexToDigit(hmacRaRbABKab) + message.FrameEnd
 	if err := ch.SendFrame(hmacMessage); err != nil {
 		return NewOWNAuthErrorWithCause("HMAC STEP-4 send error", err)
 	}
@@ -290,7 +291,7 @@ func (bc *BUSConnector) doHMACHandshake(hmacType string, ch *FrameChannel) error
 		return NewOWNAuthErrorWithCause("HMAC STEP-4 read error", err)
 	}
 
-	if fr == message2.FrameNACK {
+	if fr == message.FrameNACK {
 		return NewOWNAuthError("Password not accepted by gateway (HMAC)")
 	}
 
@@ -301,10 +302,10 @@ func (bc *BUSConnector) doHMACHandshake(hmacType string, ch *FrameChannel) error
 
 	hmacRaRbKab := DigitToHex(matches[1])
 	if CalcSHA256(ra+rb+kab) == hmacRaRbKab {
-		if err := ch.SendFrame(message2.FrameACK); err != nil {
+		if err := ch.SendFrame(message.FrameACK); err != nil {
 			return NewOWNAuthErrorWithCause("HMAC final ACK send error", err)
 		}
-		log.Println("(HS) HMAC_AUTH: final ACK sent ==HANDSHAKE COMPLETED==")
+		log.Trace().Msg("(HS) HMAC_AUTH: final ACK sent ==HANDSHAKE COMPLETED==")
 		return nil
 	}
 
@@ -320,7 +321,7 @@ func (bc *BUSConnector) SendCommandSynch(frame string) (*Response, error) {
 }
 
 func (bc *BUSConnector) sendCmdAndReadResp(frame string) (*Response, error) {
-	parsedReq, err := message2.Parse(frame)
+	parsedReq, err := message.Parse(frame)
 	if err != nil {
 		return nil, NewOWNErrorWithCause("Failed to parse request frame", err)
 	}
@@ -357,7 +358,7 @@ func (bc *BUSConnector) sendCmdAndReadResp(frame string) (*Response, error) {
 		if fr == "" {
 			return nil, NewOWNError("Received null frame while reading responses")
 		}
-		parsedResp, err := message2.Parse(fr)
+		parsedResp, err := message.Parse(fr)
 		if err != nil {
 			// Skip unsupported frames
 			continue
@@ -385,7 +386,7 @@ func (bc *BUSConnector) monReceiveLoop() {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 				// Timeout - check if gateway is still reachable
 				if bc.isCmdConnected {
-					modelReq := message2.GatewayMgmtRequestModel()
+					modelReq := message.GatewayMgmtRequestModel()
 					_, cmdErr := bc.sendCmdAndReadResp(modelReq.GetFrameValue())
 					if cmdErr != nil {
 						bc.handleMonDisconnect(NewOWNErrorWithCause("Gateway not reachable", cmdErr))
@@ -410,9 +411,9 @@ func (bc *BUSConnector) monReceiveLoop() {
 			return
 		}
 
-		parsedMsg, err := message2.Parse(fr)
+		parsedMsg, err := message.Parse(fr)
 		if err != nil {
-			log.Printf("##BUS-conn## Skipping frame: %s (%v)", fr, err)
+			log.Trace().Msgf("##BUS-conn## Skipping frame: %s (%v)", fr, err)
 			continue
 		}
 		if bc.listener != nil {
@@ -432,8 +433,8 @@ func (bc *BUSConnector) startMonKeepalive() {
 				return
 			case <-ticker.C:
 				if bc.monChannel != nil {
-					if err := bc.monChannel.SendFrame(message2.FrameACK); err != nil {
-						log.Printf("##BUS-conn## Could not send MON keepalive: %v", err)
+					if err := bc.monChannel.SendFrame(message.FrameACK); err != nil {
+						log.Trace().Msgf("##BUS-conn## Could not send MON keepalive: %v", err)
 					}
 				}
 			}
@@ -452,7 +453,7 @@ func (bc *BUSConnector) stopMonKeepalive() {
 }
 
 func (bc *BUSConnector) handleMonDisconnect(err error) {
-	log.Printf("##BUS-conn## handleMonDisconnect: %v", err)
+	log.Trace().Msgf("##BUS-conn## handleMonDisconnect: %v", err)
 	bc.stopMonKeepalive()
 	bc.isMonConnected = false
 	if bc.monChannel != nil {
@@ -489,5 +490,5 @@ func (bc *BUSConnector) Disconnect() {
 		bc.monConn.Close()
 		bc.monConn = nil
 	}
-	log.Println("##BUS-conn## CMD+MON connections CLOSED")
+	log.Trace().Msg("##BUS-conn## CMD+MON connections CLOSED")
 }

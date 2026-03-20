@@ -4,10 +4,10 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"log"
 	"strings"
 
 	"github.com/jensvandenreyt/openwebnet4go/message"
+	"github.com/rs/zerolog/log"
 )
 
 // FrameChannel wraps input/output streams to send and receive frames from an OpenWebNet gateway.
@@ -43,7 +43,7 @@ func (fc *FrameChannel) SendFrame(frame string) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("-FC-%s -------> %s", fc.name, frame)
+	log.Trace().Msgf("-FC-%s -------> %s", fc.name, frame)
 	return nil
 }
 
@@ -78,7 +78,7 @@ func (fc *FrameChannel) ReadFrames() (string, error) {
 		if len(fc.readQueue) > 0 {
 			frame := fc.readQueue[0]
 			fc.readQueue = fc.readQueue[1:]
-			log.Printf("-FC-%s <------- %s", fc.name, frame)
+			log.Trace().Msgf("-FC-%s <------- %s", fc.name, frame)
 			return frame, nil
 		}
 	}
@@ -124,5 +124,5 @@ func (fc *FrameChannel) Disconnect() {
 	fc.writer = nil
 	// bufio.Reader does not implement io.Closer, so nothing to close here.
 	// The underlying connection is closed separately.
-	log.Printf("-FC-%s in/out streams CLOSED", fc.name)
+	log.Trace().Msgf("-FC-%s in/out streams CLOSED", fc.name)
 }

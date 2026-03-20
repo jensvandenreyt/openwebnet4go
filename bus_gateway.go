@@ -2,13 +2,13 @@ package openwebnet
 
 import (
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"time"
 
 	communication2 "github.com/jensvandenreyt/openwebnet4go/communication"
 	message2 "github.com/jensvandenreyt/openwebnet4go/message"
+	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -38,7 +38,7 @@ type BUSGateway struct {
 }
 
 // NewBUSGateway creates a new BUSGateway with the given host, port and password.
-func NewBUSGateway(host string, port int, pwd string) *BUSGateway {
+func NewBUSGateway(host string, port int, pwd string) Gateway {
 	return &BUSGateway{
 		host:      host,
 		port:      port,
@@ -62,7 +62,7 @@ func (gw *BUSGateway) IsConnected() bool { return gw.isConnected }
 // Connect connects to the OpenWebNet gateway.
 func (gw *BUSGateway) Connect() error {
 	if gw.isConnected {
-		log.Println("##BUS## OpenGateway is already connected")
+		log.Trace().Msg("##BUS## OpenGateway is already connected")
 		return nil
 	}
 	gw.closedRequested = false
@@ -93,7 +93,7 @@ func (gw *BUSGateway) Connect() error {
 	gw.handleManagementDimensions(gw.sendInternal(message2.GatewayMgmtRequestMACAddress()))
 	gw.handleManagementDimensions(gw.sendInternal(message2.GatewayMgmtRequestFirmwareVersion()))
 
-	log.Println("##GW## ============ OpenGateway CONNECTED! ============")
+	log.Trace().Msg("##GW## ============ OpenGateway CONNECTED! ============")
 	gw.isConnected = true
 	gw.notifyListeners(func(l GatewayListener) { l.OnConnected() })
 	return nil
@@ -103,7 +103,7 @@ func (gw *BUSGateway) Connect() error {
 func (gw *BUSGateway) Reconnect() error {
 	retry := reconnectRetryAfter
 	for !gw.isConnected && !gw.closedRequested {
-		log.Printf("--Sleeping %v before re-connecting...", retry)
+		log.Trace().Msgf("--Sleeping %v before re-connecting...", retry)
 		time.Sleep(retry)
 		if gw.closedRequested {
 			break
@@ -219,13 +219,13 @@ func (gw *BUSGateway) handleManagementDimensions(res *communication2.Response, e
 			mac, err := message2.GatewayMgmtParseMACAddress(bom)
 			if err == nil {
 				gw.macAddr = mac
-				log.Printf("##GW## MAC ADDRESS: %s", gw.GetMACAddr())
+				log.Trace().Msgf("##GW## MAC ADDRESS: %s", gw.GetMACAddr())
 			}
 		case message2.DimGatewayMgmtFirmwareVersion.Value():
 			fw, err := message2.GatewayMgmtParseFirmwareVersion(bom)
 			if err == nil {
 				gw.firmwareVersion = fw
-				log.Printf("##GW## FIRMWARE: %s", gw.GetFirmwareVersion())
+				log.Trace().Msgf("##GW## FIRMWARE: %s", gw.GetFirmwareVersion())
 			}
 		}
 	}
@@ -264,7 +264,7 @@ func (gw *BUSGateway) IsCmdConnectionReady() bool {
 // DiscoverDevices starts a device discovery session.
 func (gw *BUSGateway) DiscoverDevices() error {
 	if gw.isDiscovering {
-		log.Println("##BUS## discovery already in progress -> SKIPPING...")
+		log.Trace().Msg("##BUS## discovery already in progress -> SKIPPING...")
 		return nil
 	}
 	if !gw.isConnected {
@@ -280,7 +280,7 @@ func (gw *BUSGateway) discoverDevicesInternal() error {
 	}()
 
 	// DISCOVER LIGHTS
-	log.Println("##BUS## ----- LIGHTS discovery -----")
+	log.Trace().Msg("##BUS## ----- LIGHTS discovery -----")
 	res, err := gw.sendInternal(message2.LightingRequestStatus(message2.WhereLightAutomGeneral.Value()))
 	if err == nil && res != nil {
 		for _, msg := range res.GetResponseMessages() {
@@ -297,7 +297,7 @@ func (gw *BUSGateway) discoverDevicesInternal() error {
 	}
 
 	// DISCOVER AUTOMATION
-	log.Println("##BUS## ----- AUTOMATION discovery -----")
+	log.Trace().Msg("##BUS## ----- AUTOMATION discovery -----")
 	res, err = gw.sendInternal(message2.AutomationRequestStatus(message2.WhereLightAutomGeneral.Value()))
 	if err == nil && res != nil {
 		for _, msg := range res.GetResponseMessages() {
@@ -314,7 +314,7 @@ func (gw *BUSGateway) discoverDevicesInternal() error {
 	}
 
 	// DISCOVER ENERGY MANAGEMENT
-	log.Println("##BUS## ----- ENERGY MANAGEMENT discovery -----")
+	log.Trace().Msg("##BUS## ----- ENERGY MANAGEMENT discovery -----")
 	res, err = gw.sendInternal(message2.EnergyMgmtDiagnosticRequestDiagnostic(message2.WhereEnergyManagementGeneral.Value()))
 	if err == nil && res != nil {
 		for _, msg := range res.GetResponseMessages() {
@@ -331,7 +331,7 @@ func (gw *BUSGateway) discoverDevicesInternal() error {
 	}
 
 	// DISCOVER THERMOREGULATION
-	log.Println("##BUS## ----- THERMOREGULATION discovery -----")
+	log.Trace().Msg("##BUS## ----- THERMOREGULATION discovery -----")
 	res, err = gw.sendInternal(message2.ThermoregulationDiagnosticRequestDiagnostic(message2.WhereThermoAllMasterProbes.Value()))
 	if err == nil && res != nil {
 		for _, msg := range res.GetResponseMessages() {
@@ -348,7 +348,7 @@ func (gw *BUSGateway) discoverDevicesInternal() error {
 	}
 
 	// DISCOVER DRY CONTACT / IR SENSOR
-	log.Println("##BUS## ----- DRY CONTACT / IR sensor discovery -----")
+	log.Trace().Msg("##BUS## ----- DRY CONTACT / IR sensor discovery -----")
 	res, err = gw.sendInternal(message2.CENPlusRequestStatus("30"))
 	if err == nil && res != nil {
 		for _, msg := range res.GetResponseMessages() {
@@ -364,7 +364,7 @@ func (gw *BUSGateway) discoverDevicesInternal() error {
 		}
 	}
 
-	log.Println("##BUS## ----- ### DISCOVERY COMPLETED")
+	log.Trace().Msg("##BUS## ----- ### DISCOVERY COMPLETED")
 	gw.notifyListeners(func(l GatewayListener) { l.OnDiscoveryCompleted() })
 	return nil
 }
