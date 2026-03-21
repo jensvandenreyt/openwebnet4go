@@ -40,6 +40,17 @@ func (r *Response) GetResponseMessages() []message.OpenMessage {
 	return result
 }
 
+// GetFirstBaseOpenMessage returns the first of BaseOpenMessage received as response.
+func (r *Response) GetFirstBaseOpenMessage() *message.BaseOpenMessage {
+	messages := r.GetResponseMessages()
+	for _, openMessage := range messages {
+		if bom, ok := openMessage.(*message.BaseOpenMessage); ok {
+			return bom
+		}
+	}
+	return nil
+}
+
 // GetFinalResponse returns the last OpenMessage that finalised this response.
 func (r *Response) GetFinalResponse() message.OpenMessage {
 	r.mu.Lock()
