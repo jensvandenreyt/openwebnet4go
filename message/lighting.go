@@ -28,26 +28,91 @@ const (
 	WhatLightingEndMovementDetected WhatLighting = 39
 )
 
-func (w WhatLighting) Value() int { return int(w) }
+func (w WhatLighting) Value() int {
+	return int(w)
+}
 
-var whatLightingValues = map[int]WhatLighting{
-	0: WhatLightingOff, 1: WhatLightingOn,
-	2: WhatLightingDimmerLevel2, 3: WhatLightingDimmerLevel3,
-	4: WhatLightingDimmerLevel4, 5: WhatLightingDimmerLevel5,
-	6: WhatLightingDimmerLevel6, 7: WhatLightingDimmerLevel7,
-	8: WhatLightingDimmerLevel8, 9: WhatLightingDimmerLevel9,
-	10: WhatLightingDimmerLevel10, 30: WhatLightingDimmerLevelUp,
-	31: WhatLightingDimmerLevelDown, 32: WhatLightingDimmerToggle,
-	34: WhatLightingMovementDetected, 39: WhatLightingEndMovementDetected,
+func (w WhatLighting) String() string {
+	return whatLightingAsString(w)
 }
 
 // WhatLightingFromValue returns the WhatLighting for a given int.
 func WhatLightingFromValue(i int) What {
-	v, ok := whatLightingValues[i]
-	if !ok {
+	switch i {
+	case WhatLightingOff.Value():
+		return WhatLightingOff
+	case WhatLightingOn.Value():
+		return WhatLightingOn
+	case WhatLightingDimmerLevel2.Value():
+		return WhatLightingDimmerLevel2
+	case WhatLightingDimmerLevel3.Value():
+		return WhatLightingDimmerLevel3
+	case WhatLightingDimmerLevel4.Value():
+		return WhatLightingDimmerLevel4
+	case WhatLightingDimmerLevel5.Value():
+		return WhatLightingDimmerLevel5
+	case WhatLightingDimmerLevel6.Value():
+		return WhatLightingDimmerLevel6
+	case WhatLightingDimmerLevel7.Value():
+		return WhatLightingDimmerLevel7
+	case WhatLightingDimmerLevel8.Value():
+		return WhatLightingDimmerLevel8
+	case WhatLightingDimmerLevel9.Value():
+		return WhatLightingDimmerLevel9
+	case WhatLightingDimmerLevel10.Value():
+		return WhatLightingDimmerLevel10
+	case WhatLightingDimmerLevelUp.Value():
+		return WhatLightingDimmerLevelUp
+	case WhatLightingDimmerLevelDown.Value():
+		return WhatLightingDimmerLevelDown
+	case WhatLightingDimmerToggle.Value():
+		return WhatLightingDimmerToggle
+	case WhatLightingMovementDetected.Value():
+		return WhatLightingMovementDetected
+	case WhatLightingEndMovementDetected.Value():
+		return WhatLightingEndMovementDetected
+	default:
 		return nil
 	}
-	return v
+}
+
+func whatLightingAsString(wl WhatLighting) string {
+	switch wl {
+	case WhatLightingOff:
+		return "LightingOff"
+	case WhatLightingOn:
+		return "LightingOn"
+	case WhatLightingDimmerLevel2:
+		return "LightingDimmerLevel2"
+	case WhatLightingDimmerLevel3:
+		return "LightingDimmerLevel3"
+	case WhatLightingDimmerLevel4:
+		return "LightingDimmerLevel4"
+	case WhatLightingDimmerLevel5:
+		return "LightingDimmerLevel5"
+	case WhatLightingDimmerLevel6:
+		return "LightingDimmerLevel6"
+	case WhatLightingDimmerLevel7:
+		return "LightingDimmerLevel7"
+	case WhatLightingDimmerLevel8:
+		return "LightingDimmerLevel8"
+	case WhatLightingDimmerLevel9:
+		return "LightingDimmerLevel9"
+	case WhatLightingDimmerLevel10:
+		return "LightingDimmerLevel10"
+	case WhatLightingDimmerLevelUp:
+		return "LightingDimmerLevelUp"
+	case WhatLightingDimmerLevelDown:
+		return "LightingDimmerLevelDown"
+	case WhatLightingDimmerToggle:
+		return "LightingDimmerToggle"
+	case WhatLightingMovementDetected:
+		return "LightingMovementDetected"
+	case WhatLightingEndMovementDetected:
+		return "LightingEndMovementDetected"
+	default:
+		return ""
+	}
 }
 
 // DimLighting represents DIM values for Lighting messages.
@@ -106,7 +171,7 @@ func detectLightingDeviceType(msg *BaseOpenMessage) (OpenDeviceType, error) {
 				case WhatLightingOff, WhatLightingOn, WhatLightingMovementDetected, WhatLightingEndMovementDetected:
 					return DeviceSCSOnOffSwitch, nil
 				default:
-					if wl.Value() >= 2 && wl.Value() <= 10 {
+					if wl.Value() >= 2 && wl <= 10 {
 						return DeviceSCSDimmerSwitch, nil
 					}
 				}
